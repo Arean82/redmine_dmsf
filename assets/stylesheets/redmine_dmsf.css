@@ -28,10 +28,6 @@
 	min-width: 18px;
 }
 
-a.dmsf-label {
-    margin-left: 4px;
-}
-
 /* Query form */
 .query-columns > span { /* EasyExtension */
     display: inline-block;
@@ -154,7 +150,8 @@ div[id*="revision_access_"] {
 }
 
 /* Command icons */
-.dmsf-icon-link:not(:has(svg)) { background-image: url("../../../images/link.png"); }
+.dmsf-icon-link { background-image: url("../../../images/link.png"); }
+.icon-approvalworkflows { background-image: url("../../../images/ticket_go.png"); }
 
 /* File types */
 .dmsf-icon-file{
@@ -215,27 +212,15 @@ div[id*="revision_access_"] {
 .icon-dmsf-file-revision { background-image: url("../../../images/document.png"); }
 
 /* Links */
-.dmsf-gray,
-.dmsf-gray a,
-.dmsf-gray a:link,
-.dmsf-gray a:visited {
-    color: gray;
-}
+.dmsf-gray { color: #AAA }
 
-svg.dmsf-gray {
-    stroke: grey;
+.dmsf-gray a, .dmsf-gray a:link, .dmsf-gray a:visited {
+    color: #484848;
 }
 
 /* System folders */
-.dmsf-system,
-.dmsf-system a,
-.dmsf-system a:link,
-.dmsf-system a:visited {
-    color: darkviolet;
-}
-
-svg.dmsf-system {
-    stroke: darkviolet;
+.dmsf-system {
+    color: #5C82AD
 }
 
 /* Search results */
@@ -410,5 +395,5 @@ div.dmsf-scroll {
 
 /* Wiki toolbar */
 .jstb_dmsf {
-    background-image: url("/document.png");
+    background-image: url("../images/jstoolbar/bt_dmsf.png");
 }

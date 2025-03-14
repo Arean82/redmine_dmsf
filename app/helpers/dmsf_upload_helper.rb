@@ -27,7 +27,7 @@ module DmsfUploadHelper
     files = []
     if committed_files
       failed_uploads = []
-      committed_files.each_value do |committed_file|
+      committed_files.each do |_, committed_file|
         name = committed_file[:name]
         new_revision = DmsfFileRevision.new
         file = DmsfFile.visible.find_file_by_name(project, folder, name)
@@ -45,7 +45,7 @@ module DmsfUploadHelper
           file.project_id = project.id
           file.name = name
           file.dmsf_folder = folder
-          file.notification = RedmineDmsf.dmsf_default_notifications?
+          file.notification = Setting.plugin_redmine_dmsf['dmsf_default_notifications'].present?
         end
         if file.locked_for_user?
           failed_uploads.push file
@@ -130,7 +130,7 @@ module DmsfUploadHelper
           wf.notify_users project, new_revision, controller
           begin
             file.lock!
-          rescue DmsfLockError => e
+          rescue RedmineDmsf::Errors::DmsfLockError => e
             Rails.logger.warn e.message
           end
         else
@@ -140,8 +140,8 @@ module DmsfUploadHelper
       # Notifications
       begin
         recipients = DmsfMailer.deliver_files_updated(project, files)
-        if RedmineDmsf.dmsf_display_notified_recipients? && recipients.any?
-          max_recipients = RedmineDmsf.dmsf_max_notification_receivers_info
+        if Setting.plugin_redmine_dmsf['dmsf_display_notified_recipients'] && recipients.any?
+          max_recipients = Setting.plugin_redmine_dmsf['dmsf_max_notification_receivers_info'].to_i
           to = recipients.collect { |user, _| user.name }.first(max_recipients).join(', ')
           if to.present?
             to << (recipients.count > max_recipients ? ',...' : '.')

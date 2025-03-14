@@ -22,6 +22,7 @@ module RedmineDmsf
   module Webdav
     # DMSF controller
     class DmsfController < Dav4rack::Controller
+      include Redmine::I18n
       include AbstractController::Callbacks
 
       around_action :switch_locale
@@ -32,7 +33,7 @@ module RedmineDmsf
       end
 
       def process
-        return super unless RedmineDmsf.dmsf_webdav_authentication == 'Digest'
+        return super unless Setting.plugin_redmine_dmsf['dmsf_webdav_authentication'] == 'Digest'
 
         status = skip_authorization? || authenticate ? process_action || OK : Dav4rack::HttpStatus::Unauthorized
       rescue Dav4rack::HttpStatus::Status => e
@@ -51,14 +52,14 @@ module RedmineDmsf
       end
 
       def authenticate
-        return super unless RedmineDmsf.dmsf_webdav_authentication == 'Digest'
+        return super unless Setting.plugin_redmine_dmsf['dmsf_webdav_authentication'] == 'Digest'
 
         auth_header = request.authorization.to_s
         scheme = auth_header.split(' ', 2).first&.downcase
         if scheme == 'digest'
           Rails.logger.info 'Authentication: digest'
-          digest = Digest.new(request.authorization)
-          params = digest.params
+          auth = Rack::Auth::Digest::Request.new(request.env)
+          params = auth.params
           username = params['username']
           response = params['response']
           cnonce = params['cnonce']

@@ -22,7 +22,7 @@
 
 <div class="contextual">
   <% if @file_delete_allowed %>
-    <%= delete_link empty_trash_path(id: @project), {}, l(:label_empty_trash_bin) %>
+    <%= link_to l(:label_empty_trash_bin), empty_trash_path(id: @project), class: 'icon icon-del' %>
   <% end %>
 </div>
 
@@ -42,7 +42,7 @@
   <%= render partial: 'dmsf/sidebar' %>
 <% end %>
 
-<% if defined?(EasyExtensions) %>
+<% if Redmine::Plugin.installed?('easy_extensions') %>
   <%= late_javascript_tag do %>
     $(function() {
       $("p.buttons").addClass("filter-buttons form-actions");

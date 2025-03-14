@@ -39,12 +39,12 @@ module RedmineDmsf
                    )
 
       def initialize(path, request, response, options)
-        raise NotFound unless RedmineDmsf.dmsf_webdav?
+        raise NotFound if Setting.plugin_redmine_dmsf['dmsf_webdav'].blank?
 
         @project = nil
         @public_path = "#{options[:root_uri_path]}#{path}"
         @children = nil
-        super
+        super path, request, response, options
       end
 
       def accessor=(klass)
@@ -91,8 +91,7 @@ module RedmineDmsf
       # Generate HTML for Get requests, or Head requests if no_body is true
       def html_display
         @response.body = +''
-        return Conflict unless collection?
-
+        Confict unless collection?
         entities = children.map do |child|
           format(DIR_FILE,
                  uri_encode(request.url_for(child.path)),
@@ -162,7 +161,7 @@ module RedmineDmsf
         def get_project(scope, name, parent_project)
           prj = nil
           scope = scope.where(parent_id: parent_project.id) if parent_project
-          if RedmineDmsf.dmsf_webdav_use_project_names?
+          if Setting.plugin_redmine_dmsf['dmsf_webdav_use_project_names']
             if name =~ /^\[?.+ (\d+)\]?$/
               prj = scope.find_by(id: Regexp.last_match(1))
               # Check again whether it's really the project and not a folder with a number as a suffix

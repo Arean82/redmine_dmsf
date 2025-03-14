@@ -49,7 +49,7 @@ class DmsfFilesController < ApplicationController
       @revision = @file.last_revision
     else
       @revision = DmsfFileRevision.find(params[:download].to_i)
-      raise DmsfAccessError if @revision.dmsf_file != @file
+      raise RedmineDmsf::Errors::DmsfAccessError if @revision.dmsf_file != @file
     end
 
     check_project @revision.dmsf_file
@@ -77,7 +77,8 @@ class DmsfFilesController < ApplicationController
     # PDF preview
     pdf_preview = (params[:disposition] != 'attachment') && params[:filename].blank? && @file.pdf_preview
     filename = filename_for_content_disposition(@revision.formatted_name(member))
-    if !api_request? && pdf_preview.present? && (RedmineDmsf.office_bin.present? || params[:preview].present?)
+    if !api_request? && pdf_preview.present? && (Setting.plugin_redmine_dmsf['office_bin'].present? ||
+       params[:preview].present?)
       basename = File.basename(filename, '.*')
       send_file pdf_preview, filename: "#{basename}.pdf", type: 'application/pdf', disposition: 'inline'
     # Text preview
@@ -93,7 +94,7 @@ class DmsfFilesController < ApplicationController
                 type: @revision.detect_content_type,
                 disposition: params[:disposition].presence || @revision.dmsf_file.disposition
     end
-  rescue DmsfAccessError => e
+  rescue RedmineDmsf::Errors::DmsfAccessError => e
     Rails.logger.error e.message
     render_403
   rescue StandardError => e
@@ -121,7 +122,7 @@ class DmsfFilesController < ApplicationController
       revision.title = params[:dmsf_file_revision][:title].scrub.strip
       revision.name = params[:dmsf_file_revision][:name].scrub.strip
       revision.description = params[:dmsf_file_revision][:description]&.scrub&.strip
-      revision.comment = params[:dmsf_file_revision][:comment]&.scrub&.strip
+      revision.comment = params[:dmsf_file_revision][:comment].scrub.strip
       revision.dmsf_file = @file
       last_revision = @file.last_revision
       revision.source_revision = last_revision
@@ -180,8 +181,8 @@ class DmsfFilesController < ApplicationController
           call_hook :dmsf_helper_upload_after_commit, { file: @file }
           begin
             recipients = DmsfMailer.deliver_files_updated(@project, [@file])
-            if RedmineDmsf.dmsf_display_notified_recipients? && recipients.any?
-              max_notifications = RedmineDmsf.dmsf_max_notification_receivers_info
+            if Setting.plugin_redmine_dmsf['dmsf_display_notified_recipients'] && recipients.any?
+              max_notifications = Setting.plugin_redmine_dmsf['dmsf_max_notification_receivers_info'].to_i
               to = recipients.collect { |user, _| user.name }.first(max_notifications).join(', ')
               if to.present?
                 to << (recipients.count > max_notifications ? ',...' : '.')
@@ -223,8 +224,8 @@ class DmsfFilesController < ApplicationController
         else
           begin
             recipients = DmsfMailer.deliver_files_deleted(@project, [@file])
-            if RedmineDmsf.dmsf_display_notified_recipients? && recipients.any?
-              max_notification = RedmineDmsf.dmsf_max_notification_receivers_info
+            if Setting.plugin_redmine_dmsf['dmsf_display_notified_recipients'] && recipients.any?
+              max_notification = Setting.plugin_redmine_dmsf['dmsf_max_notification_receivers_info'].to_i
               to = recipients.collect { |user, _| user.name }.first(max_notification).join(', ')
               if to.present?
                 to << (recipients.count > max_notification ? ',...' : '.')
@@ -378,6 +379,6 @@ class DmsfFilesController < ApplicationController
   def check_project(entry)
     return unless entry && entry.project != @project
 
-    raise DmsfAccessError, l(:error_entry_project_does_not_match_current_project)
+    raise RedmineDmsf::Errors::DmsfAccessError, l(:error_entry_project_does_not_match_current_project)
   end
 end

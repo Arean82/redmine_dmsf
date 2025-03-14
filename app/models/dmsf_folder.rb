@@ -149,7 +149,7 @@ class DmsfFolder < ApplicationRecord
   end
 
   def default_values
-    self.notification = true if RedmineDmsf.dmsf_default_notifications? && !system
+    self.notification = true if Setting.plugin_redmine_dmsf['dmsf_default_notifications'].present? && !system
   end
 
   def locked_by
@@ -371,7 +371,9 @@ class DmsfFolder < ApplicationRecord
   end
 
   def self.column_on?(column)
-    RedmineDmsf.dmsf_columns.include? column
+    dmsf_columns = Setting.plugin_redmine_dmsf['dmsf_columns']
+    dmsf_columns ||= DmsfFolder::DEFAULT_COLUMNS
+    dmsf_columns.include? column
   end
 
   def custom_value(custom_field)
@@ -383,7 +385,8 @@ class DmsfFolder < ApplicationRecord
   end
 
   def self.get_column_position(column)
-    dmsf_columns = RedmineDmsf.dmsf_columns
+    dmsf_columns = Setting.plugin_redmine_dmsf['dmsf_columns']
+    dmsf_columns ||= DmsfFolder::DEFAULT_COLUMNS
     pos = 0
     # 0 - checkbox
     # 1 - id
@@ -542,7 +545,7 @@ class DmsfFolder < ApplicationRecord
   end
 
   def self.visible_folders(folders, project)
-    allowed = RedmineDmsf.dmsf_act_as_attachable? &&
+    allowed = Setting.plugin_redmine_dmsf['dmsf_act_as_attachable'] &&
               (project.dmsf_act_as_attachable == Project::ATTACHABLE_DMS_AND_ATTACHMENTS) &&
               User.current.allowed_to?(:display_system_folders, project)
     folders.reject do |folder|
@@ -567,7 +570,7 @@ class DmsfFolder < ApplicationRecord
   def css_classes(trash)
     classes = []
     if trash
-      if system
+      if title.match?(/^\./)
         classes << 'dmsf-system'
       else
         classes << 'hascontextmenu'
@@ -581,7 +584,7 @@ class DmsfFolder < ApplicationRecord
       else
         classes << 'dmsf-child'
       end
-      if system
+      if title.match?(/^\./)
         classes << 'dmsf-system'
       else
         classes << 'hascontextmenu'

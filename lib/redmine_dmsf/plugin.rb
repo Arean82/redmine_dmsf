@@ -39,12 +39,12 @@ module RedmineDmsf
       false
     end
 
-    # Return true if the given gem is installed
-    def self.lib_available?(path)
-      require path
+    # Return true if Xapian binding is installed (gem ruby_xapian)
+    def self.xapian_available?
+      require 'xapian'
       true
     rescue LoadError => e
-      Rails.logger.info e.message
+      Rails.logger.warn e.message
       false
     end
   end

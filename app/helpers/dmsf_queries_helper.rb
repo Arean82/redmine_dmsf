@@ -23,28 +23,33 @@ module DmsfQueriesHelper
   include ApplicationHelper
 
   def column_value(column, item, value)
-    return super unless item.is_a?(DmsfFolder)
+    return super column, item, value unless item.is_a? DmsfFolder
 
     case column.name
     when :modified
-      val = super
+      val = super(column, item, value)
       case item.type
       when 'file'
         file = DmsfFile.find_by(id: item.id)
         if file&.locked?
           return content_tag(:span, val) +
-                 content_tag('span', sprite_icon('unlock', nil, icon_only: true, size: '12'),
-                             title: l(:title_locked_by_user, user: file.locked_by))
+                 content_tag(:span,
+                             '',
+                             title: l(:title_locked_by_user, user: file.locked_by),
+                             class: 'icon icon-unlock dmsf-icon-unlock')
         end
       when 'folder'
         folder = DmsfFolder.find_by(id: item.id)
         if folder&.locked?
           return content_tag(:span, val) +
-                 content_tag('span', sprite_icon('unlock', nil, icon_only: true, size: '12'),
-                             title: l(:title_locked_by_user, user: folder.locked_by))
+                 content_tag(:span,
+                             '',
+                             title: l(:title_locked_by_user, user: folder.locked_by),
+                             class: 'icon icon-unlock dmsf-icon-unlock')
         end
       end
-      content_tag(:span, val) + content_tag(:span, '', class: 'icon icon-none')
+      content_tag(:span, val) +
+        content_tag(:span, '', class: 'icon icon-none')
     when :id
       case item.type
       when 'file'
@@ -94,20 +99,19 @@ module DmsfQueriesHelper
         if user
           link_to user.name, user_path(id: value)
         else
-          super
+          super column, item, value
         end
       else
-        super
+        super column, item, value
       end
     when :title
       case item.type
       when 'project'
         tag = h("[#{value}]")
         tag = if item.project.module_enabled?(:dmsf)
-                link_to(sprite_icon('folder', nil, icon_only: true), dmsf_folder_path(id: item.project)) +
-                  link_to(tag, dmsf_folder_path(id: item.project), class: 'dmsf-label')
+                link_to tag, dmsf_folder_path(id: item.project), class: 'icon icon-folder'
               else
-                sprite_icon 'folder', tag
+                content_tag 'span', tag, class: 'icon icon-folder'
               end
         unless filter_any?
           path = expand_folder_dmsf_path
@@ -126,7 +130,7 @@ module DmsfQueriesHelper
         end
         tag += content_tag('div', item.filename, class: 'dmsf-filename', title: l(:title_filename_for_download))
         if item.project.watched_by?(User.current)
-          tag += link_to(sprite_icon('fav', nil, icon_only: true, size: '12'),
+          tag += link_to('',
                          watch_path(object_type: 'project', object_id: item.project.id),
                          title: l(:button_unwatch),
                          method: 'delete',
@@ -135,13 +139,9 @@ module DmsfQueriesHelper
         tag
       when 'folder'
         if item&.deleted?
-          tag = sprite_icon('folder', h(value))
+          tag = content_tag('span', value, class: 'icon icon-folder')
         else
-          tag = link_to(sprite_icon('folder', nil,
-                                    icon_only: true,
-                                    css_class: item.system ? 'dmsf-system' : ''),
-                        dmsf_folder_path(id: item.project, folder_id: item.id))
-          tag += link_to(h(value), dmsf_folder_path(id: item.project, folder_id: item.id), class: 'dmsf-label')
+          tag = link_to(h(value), dmsf_folder_path(id: item.project, folder_id: item.id), class: 'icon icon-folder')
           unless filter_any?
             path = expand_folder_dmsf_path
             columns = params['c']
@@ -160,7 +160,7 @@ module DmsfQueriesHelper
         end
         tag += content_tag('div', item.filename, class: 'dmsf-filename', title: l(:title_filename_for_download))
         if !item&.deleted? && item.watched_by?(User.current)
-          tag += link_to(sprite_icon('fav', nil, icon_only: true, size: '12'),
+          tag += link_to('',
                          watch_path(object_type: 'dmsf_folder', object_id: item.id),
                          title: l(:button_unwatch),
                          method: 'delete',
@@ -169,38 +169,32 @@ module DmsfQueriesHelper
         tag
       when 'folder-link'
         if item&.deleted?
-          tag = sprite_icon('folder', h(value))
+          tag = content_tag('span', value, class: 'icon icon-folder')
         else
-          # For links, we use revision_id containing dmsf_folder.id in fact
-          tag = link_to(sprite_icon('folder', nil, icon_only: true, css_class: 'dmsf-gray'),
-                        dmsf_folder_path(id: item.project, folder_id: item.revision_id))
-          tag += link_to(h(value), dmsf_folder_path(id: item.project, folder_id: item.revision_id), class: 'dmsf-label')
+          # For links we use revision_id containing dmsf_folder.id in fact
+          tag = link_to(h(value),
+                        dmsf_folder_path(id: item.project, folder_id: item.revision_id),
+                        class: 'icon icon-folder')
           tag = content_tag('span', '', class: 'dmsf-expander') + tag unless filter_any?
         end
         tag + content_tag('div', item.filename, class: 'dmsf-filename', title: l(:label_target_folder))
       when 'file', 'file-link'
-        icon_name = icon_for_mime_type(Redmine::MimeType.css_class_of(item.filename))
         if item&.deleted?
-          tag = sprite_icon(icon_name, h(value))
+          tag = content_tag('span', value, class: "icon icon-file #{DmsfHelper.filetype_css(item.filename)}")
         else
-          # For links, we use revision_id containing dmsf_file.id in fact
+          # For links we use revision_id containing dmsf_file.id in fact
           file_view_url = url_for(
             { controller: :dmsf_files, action: 'view', id: item.type == 'file' ? item.id : item.revision_id }
           )
           content_type = Redmine::MimeType.of(item.filename)
           content_type = 'application/octet-stream' if content_type.blank?
-          options = { class: 'dmsf-label', 'data-downloadurl': "#{content_type}:#{h(value)}:#{file_view_url}" }
+          options = { class: "icon icon-file #{DmsfHelper.filetype_css(item.filename)}",
+                      'data-downloadurl': "#{content_type}:#{h(value)}:#{file_view_url}" }
           unless previewable?(item.filename, content_type)
             options[:target] = '_blank'
             options[:rel] = 'noopener'
           end
-          tag = link_to(sprite_icon(icon_name,
-                                    nil,
-                                    icon_only: true,
-                                    css_class: item.type == 'file-link' ? 'dmsf-gray' : ''),
-                        file_view_url,
-                        options)
-          tag += link_to(h(value), file_view_url, options)
+          tag = link_to h(value), file_view_url, options
           tag = content_tag('span', '', class: 'dmsf-expander') + tag unless filter_any?
         end
         member = Member.find_by(user_id: User.current.id, project_id: item.project_id)
@@ -208,7 +202,7 @@ module DmsfQueriesHelper
         filename = revision ? revision.formatted_name(member) : item.filename
         tag += content_tag('div', filename, class: 'dmsf-filename', title: l(:title_filename_for_download))
         if (item.type == 'file') && !item&.deleted? && revision.dmsf_file&.watched_by?(User.current)
-          tag += link_to(sprite_icon('fav', nil, icon_only: true, size: '12'),
+          tag += link_to('',
                          watch_path(object_type: 'dmsf_file', object_id: item.id),
                          title: l(:button_unwatch),
                          method: 'delete',
@@ -217,13 +211,9 @@ module DmsfQueriesHelper
         tag
       when 'url-link'
         if item&.deleted?
-          tag = sprite_icon('link', h(value))
+          tag = content_tag('span', value, class: 'icon dmsf-icon-link')
         else
-          tag = link_to(sprite_icon('link', nil, icon_only: true, css_class: 'dmsf-gray'),
-                        item.filename,
-                        target: '_blank',
-                        rel: 'noopener')
-          tag += link_to(h(value), item.filename, target: '_blank', rel: 'noopener')
+          tag = link_to(h(value), item.filename, target: '_blank', rel: 'noopener', class: 'icon dmsf-icon-link')
           tag = content_tag('span', '', class: 'dmsf-expander') + tag unless filter_any?
         end
         tag + content_tag('div', item.filename, class: 'dmsf-filename', title: l(:field_url))
@@ -246,12 +236,12 @@ module DmsfQueriesHelper
           h(DmsfWorkflow.workflow_str(value.to_i))
         end
       else
-        super
+        super column, item, value
       end
     when :comment
       value.present? ? content_tag('div', textilizable(value), class: 'wiki') : ''
     else
-      super
+      super column, item, value
     end
   end
 
@@ -264,7 +254,7 @@ module DmsfQueriesHelper
         text, _names = DmsfWorkflow.workflow_info(object.workflow, object.workflow_id, object.revision_id)
         text
       else
-        super
+        super column, object, value
       end
     when :author
       if value
@@ -272,11 +262,11 @@ module DmsfQueriesHelper
         if user
           user.name
         else
-          super
+          super column, object, value
         end
       end
     else
-      super
+      super column, object, value
     end
   end
 

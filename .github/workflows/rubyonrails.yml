@@ -27,7 +27,6 @@ on:
 jobs:
   plugin_tests:
     strategy:
-      fail-fast: false
       matrix:
         engine: [mysql, postgresql, sqlite]
         include:
@@ -47,7 +46,7 @@ jobs:
             sql3: GRANT ALL PRIVILEGES ON test.* TO 'redmine'@'localhost';
             # SQL client command
             database_command: mysql -uroot -proot -e
-            # SQL service
+            # SQl service
             database_service: mysql
           - engine: postgresql
             # Database configuration for Redmine
@@ -85,7 +84,7 @@ jobs:
           sudo apt-get install -y litmus libreoffice subversion
       - name: Clone Redmine
         # Get the latest stable Redmine
-        run: svn export http://svn.redmine.org/redmine/branches/6.0-stable/ /opt/redmine
+        run: svn export http://svn.redmine.org/redmine/branches/5.1-stable/ /opt/redmine
       - name: Checkout code
         uses: actions/checkout@v3        
       - name: Link the plugin
@@ -120,7 +119,6 @@ jobs:
           bundle exec rake db:migrate
           bundle exec rake redmine:plugins:migrate
           bundle exec rake redmine:load_default_data
-          bundle exec rake assets:precompile
         env:
           REDMINE_LANG: en
       - name: Configure WebDAV
@@ -160,7 +158,7 @@ jobs:
           bundle exec rails server -u webrick -e test -d
           sleep 5
           litmus http://localhost:3000/dmsf/webdav/dmsf_test_project admin admin
-          kill $(pgrep -f webrick)
+          kill `cat tmp/pids/server.pid`
           bundle exec rake redmine:dmsf_webdav_test_off
         env:
           TESTS: "basic copymove props"
@@ -173,9 +171,3 @@ jobs:
           if [[ "${{matrix.database_service}}" ]]; then
             sudo systemctl stop ${{matrix.engine}}
           fi
-      - name: Archive test.log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: "test_${{matrix.engine}}.log"
-          path: /opt/redmine/log/test.log

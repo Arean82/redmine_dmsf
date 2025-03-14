@@ -18,8 +18,6 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301, USA.
 
-require "#{File.dirname(__FILE__)}/../../lib/redmine_dmsf/dmsf_zip"
-
 # DMSF controller
 class DmsfController < ApplicationController
   include RedmineDmsf::DmsfZip
@@ -78,14 +76,14 @@ class DmsfController < ApplicationController
 
   def show
     @system_folder = @folder&.system
-    @locked = @folder&.locked?
+    @locked_for_user = @folder&.locked_for_user?
     @folder_manipulation_allowed = User.current.allowed_to?(:folder_manipulation, @project)
     @file_manipulation_allowed = User.current.allowed_to?(:file_manipulation, @project)
     @trash_enabled = @folder_manipulation_allowed && @file_manipulation_allowed
     @notifications = Setting.notified_events.include?('dmsf_legacy_notifications')
     @query.dmsf_folder_id = @folder ? @folder.id : nil
     @query.deleted = false
-    @query.sub_projects |= RedmineDmsf.dmsf_projects_as_subfolders?
+    @query.sub_projects |= Setting.plugin_redmine_dmsf['dmsf_projects_as_subfolders'].present?
     if @folder&.deleted? || (params[:folder_title].present? && !@folder)
       render_404
       return
@@ -130,19 +128,14 @@ class DmsfController < ApplicationController
   end
 
   def download_email_entries
-    file_path = helpers.email_entry_tmp_file_path(params[:entry])
-    if File.exist?(file_path)
-      # IE has got a tendency to cache files
-      expires_in 0.years, 'must-revalidate' => true
-      send_file(
-        file_path,
-        filename: 'Documents.zip',
-        type: 'application/zip',
-        disposition: 'attachment'
-      )
-    else
-      render_404
-    end
+    # IE has got a tendency to cache files
+    expires_in 0.years, 'must-revalidate' => true
+    send_file(
+      params[:path],
+      filename: 'Documents.zip',
+      type: 'application/zip',
+      disposition: 'attachment'
+    )
   rescue StandardError => e
     flash[:error] = e.message
   end
@@ -169,11 +162,11 @@ class DmsfController < ApplicationController
     end
 
     if @selected_dir_links.present? && (params[:email_entries].present? || params[:download_entries].present?)
-      @selected_folders = DmsfLink.where(id: @selected_dir_links).pluck(:target_id) | @selected_folders
+      @selected_folders = DmsfLink.where(id: selected_dir_links).pluck(:target_id) | @selected_folders
     end
 
     if @selected_file_links.present? && (params[:email_entries].present? || params[:download_entries].present?)
-      @selected_files = DmsfLink.where(id: @selected_file_links).pluck(:target_id) | @selected_files
+      @selected_files = DmsfLink.where(id: selected_file_links).pluck(:target_id) | @selected_files
     end
 
     begin
@@ -188,18 +181,18 @@ class DmsfController < ApplicationController
       elsif params[:destroy_entries].present?
         delete_entries @selected_folders, @selected_files, @selected_links, true
         redirect_back_or_default dmsf_folder_path(id: @project, folder_id: @folder)
-      elsif params[:copy_entries].present?
-        copy_entries @selected_folders, @selected_files, @selected_links
-        redirect_back_or_default dmsf_folder_path(id: @project, folder_id: @folder)
       elsif params[:move_entries].present?
         move_entries @selected_folders, @selected_files, @selected_links
+        redirect_back_or_default dmsf_folder_path(id: @project, folder_id: @folder)
+      elsif params[:copy_entries].present?
+        copy_entries @selected_folders, @selected_files, @selected_links
         redirect_back_or_default dmsf_folder_path(id: @project, folder_id: @folder)
       else
         download_entries @selected_folders, @selected_files
       end
-    rescue DmsfFileNotFoundError
+    rescue RedmineDmsf::Errors::DmsfFileNotFoundError
       render_404
-    rescue DmsfAccessError
+    rescue RedmineDmsf::Errors::DmsfAccessError
       render_403
     rescue StandardError => e
       flash[:error] = e.message
@@ -209,14 +202,12 @@ class DmsfController < ApplicationController
   end
 
   def entries_email
-    file_path = helpers.email_entry_tmp_file_path(params[:email][:zipped_content])
-    params[:email][:zipped_content] = file_path
     if params[:email][:to].strip.blank?
       flash[:error] = l(:error_email_to_must_be_entered)
     else
       DmsfMailer.deliver_send_documents @project, params[:email].permit!, User.current
-      if File.exist?(file_path)
-        File.delete(file_path)
+      if File.exist?(params[:email][:zipped_content])
+        File.delete(params[:email][:zipped_content])
       else
         flash[:error] = l(:header_minimum_filesize)
       end
@@ -504,14 +495,16 @@ class DmsfController < ApplicationController
   end
 
   def email_entries(selected_folders, selected_files)
-    raise DmsfAccessError unless User.current.allowed_to?(:email_documents, @project)
+    raise RedmineDmsf::Errors::DmsfAccessError unless User.current.allowed_to?(:email_documents, @project)
 
     zip = Zip.new
     zip_entries(zip, selected_folders, selected_files)
     zipped_content = zip.finish
 
-    max_filesize = RedmineDmsf.dmsf_max_email_filesize
-    raise DmsfEmailMaxFileSizeError if max_filesize.positive? && File.size(zipped_content) > max_filesize * 1_048_576
+    max_filesize = Setting.plugin_redmine_dmsf['dmsf_max_email_filesize'].to_f
+    if max_filesize.positive? && File.size(zipped_content) > max_filesize * 1_048_576
+      raise RedmineDmsf::Errors::DmsfEmailMaxFileSizeError
+    end
 
     zip.dmsf_files.each do |f|
       # Action
@@ -530,12 +523,13 @@ class DmsfController < ApplicationController
     end
 
     @email_params = {
-      zipped_content: helpers.tmp_entry_identifier(zipped_content),
+      zipped_content: zipped_content,
       folders: selected_folders,
       files: selected_files,
       subject: "#{@project.name} #{l(:label_dmsf_file_plural).downcase}",
-      from: RedmineDmsf.dmsf_documents_email_from,
-      reply_to: RedmineDmsf.dmsf_documents_email_reply_to
+      from: Setting.plugin_redmine_dmsf['dmsf_documents_email_from'].presence ||
+            "#{User.current.name} <#{User.current.mail}>",
+      reply_to: Setting.plugin_redmine_dmsf['dmsf_documents_email_reply_to']
     }
     @back_url = params[:back_url]
     render action: 'email_entries'
@@ -574,22 +568,23 @@ class DmsfController < ApplicationController
     member = Member.find_by(user_id: User.current.id, project_id: @project.id)
     selected_folders.each do |selected_folder_id|
       folder = DmsfFolder.visible.find_by(id: selected_folder_id)
-      raise DmsfFileNotFoundError unless folder
+      raise RedmineDmsf::Errors::DmsfFileNotFoundError unless folder
 
       zip.add_dmsf_folder folder, member, folder&.dmsf_folder&.dmsf_path_str
     end
     selected_files.each do |selected_file_id|
       file = DmsfFile.visible.find_by(id: selected_file_id)
-      raise DmsfFileNotFoundError unless file&.last_revision && File.exist?(file.last_revision&.disk_file)
-
+      unless file&.last_revision && File.exist?(file.last_revision&.disk_file)
+        raise RedmineDmsf::Errors::DmsfFileNotFoundError
+      end
       unless (file.project == @project) || User.current.allowed_to?(:view_dmsf_files, file.project)
-        raise DmsfAccessError
+        raise RedmineDmsf::Errors::DmsfAccessError
       end
 
       zip.add_dmsf_file file, member, file.dmsf_folder&.dmsf_path_str
     end
-    max_files = RedmineDmsf.dmsf_max_file_download
-    raise DmsfZipMaxFilesError if max_files.positive? && zip.dmsf_files.length > max_files
+    max_files = Setting.plugin_redmine_dmsf['dmsf_max_file_download'].to_i
+    raise RedmineDmsf::Errors::DmsfZipMaxFilesError if max_files.positive? && zip.dmsf_files.length > max_files
 
     zip
   end
@@ -599,19 +594,19 @@ class DmsfController < ApplicationController
     selected_folders.each do |id|
       folder = DmsfFolder.find_by(id: id)
 
-      raise DmsfFileNotFoundError unless folder
+      raise RedmineDmsf::Errors::DmsfFileNotFoundError unless folder
     end
     # Files
     selected_files.each do |id|
       file = DmsfFile.find_by(id: id)
-      raise DmsfFileNotFoundError unless file
+      raise RedmineDmsf::Errors::DmsfFileNotFoundError unless file
 
       flash[:error] = file.errors.full_messages.to_sentence unless file.restore
     end
     # Links
     selected_links.each do |id|
       link = DmsfLink.find_by(id: id)
-      raise DmsfFileNotFoundError unless link
+      raise RedmineDmsf::Errors::DmsfFileNotFoundError unless link
 
       flash[:error] = link.errors.full_messages.to_sentence unless link.restore
     end
@@ -620,20 +615,20 @@ class DmsfController < ApplicationController
   def delete_entries(selected_folders, selected_files, selected_links, commit)
     # Folders
     selected_folders.each do |id|
-      raise DmsfAccessError unless User.current.allowed_to?(:folder_manipulation, @project)
+      raise RedmineDmsf::Errors::DmsfAccessError unless User.current.allowed_to?(:folder_manipulation, @project)
 
       folder = DmsfFolder.find_by(id: id)
       if folder
         raise StandardError, folder.errors.full_messages.to_sentence unless folder.delete(commit: commit)
       elsif !commit
-        raise DmsfFileNotFoundError
+        raise RedmineDmsf::Errors::DmsfFileNotFoundError
       end
     end
     # Files
     deleted_files = []
     not_deleted_files = []
     if selected_files.any?
-      raise DmsfAccessError unless User.current.allowed_to?(:file_delete, @project)
+      raise RedmineDmsf::Errors::DmsfAccessError unless User.current.allowed_to?(:file_delete, @project)
 
       selected_files.each do |id|
         file = DmsfFile.find_by(id: id)
@@ -644,7 +639,7 @@ class DmsfController < ApplicationController
             not_deleted_files << file
           end
         elsif !commit
-          raise DmsfFileNotFoundError
+          raise RedmineDmsf::Errors::DmsfFileNotFoundError
         end
       end
     end
@@ -652,8 +647,8 @@ class DmsfController < ApplicationController
     unless deleted_files.empty?
       begin
         recipients = DmsfMailer.deliver_files_deleted(@project, deleted_files)
-        if RedmineDmsf.dmsf_display_notified_recipients? && recipients.any?
-          max_receivers = RedmineDmsf.dmsf_max_notification_receivers_info
+        if Setting.plugin_redmine_dmsf['dmsf_display_notified_recipients'] && recipients.any?
+          max_receivers = Setting.plugin_redmine_dmsf['dmsf_max_notification_receivers_info'].to_i
           to = recipients.collect { |user, _| user.name }.first(max_receivers).join(', ')
           if to.present?
             to << (recipients.count > max_receivers ? ',...' : '.')
@@ -669,7 +664,7 @@ class DmsfController < ApplicationController
     end
     # Links
     if selected_links.any?
-      raise DmsfAccessError unless User.current.allowed_to?(:folder_manipulation, @project)
+      raise RedmineDmsf::Errors::DmsfAccessError unless User.current.allowed_to?(:folder_manipulation, @project)
 
       selected_links.each do |id|
         link = DmsfLink.find_by(id: id)
@@ -703,10 +698,11 @@ class DmsfController < ApplicationController
 
   def move_entries(selected_folders, selected_files, selected_links)
     # Permissions
-    raise DmsfAccessError if selected_folders.any? && !User.current.allowed_to?(:folder_manipulation, @project)
-
+    if selected_folders.any? && !User.current.allowed_to?(:folder_manipulation, @project)
+      raise RedmineDmsf::Errors::DmsfAccessError
+    end
     if (selected_folders.any? || selected_links.any?) && !User.current.allowed_to?(:file_manipulation, @project)
-      raise DmsfAccessError
+      raise RedmineDmsf::Errors::DmsfAccessError
     end
 
     # Folders
@@ -756,7 +752,7 @@ class DmsfController < ApplicationController
 
   def query
     retrieve_default_query true
-    @query = if defined?(EasyExtensions)
+    @query = if Redmine::Plugin.installed?('easy_extensions')
                retrieve_query_without_easy_extensions DmsfQuery, true
              else
                retrieve_query DmsfQuery, true
@@ -829,27 +825,27 @@ class DmsfController < ApplicationController
       links = DmsfLink.where(id: @selected_links).to_a
       (folders + files + links).each do |entry|
         if entry.dmsf_folder
-          raise DmsfParentError if entry.dmsf_folder == @target_folder || entry == @target_folder
+          raise RedmineDmsf::Errors::DmsfParentError if entry.dmsf_folder == @target_folder || entry == @target_folder
         elsif @target_folder.nil?
-          raise DmsfParentError if entry.project == @target_project
+          raise RedmineDmsf::Errors::DmsfParentError if entry.project == @target_project
         end
       end
       # Prevent recursion
       if params[:move_entries].present?
         folders.each do |entry|
-          raise DmsfParentError if entry.any_child?(@target_folder)
+          raise RedmineDmsf::Errors::DmsfParentError if entry.any_child?(@target_folder)
         end
       end
       # Check permissions
       if (@target_folder && (@target_folder.locked_for_user? ||
          !DmsfFolder.permissions?(@target_folder, allow_system: false))) ||
          !@target_project.allows_to?(:folder_manipulation)
-        raise DmsfAccessError
+        raise RedmineDmsf::Errors::DmsfAccessError
       end
-    rescue DmsfParentError
+    rescue RedmineDmsf::Errors::DmsfParentError
       flash[:error] = l(:error_target_folder_same)
       redirect_back_or_default dmsf_folder_path(id: @project, folder_id: @folder)
-    rescue DmsfAccessError
+    rescue RedmineDmsf::Errors::DmsfAccessError
       render_403
     end
   end

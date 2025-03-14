@@ -187,7 +187,7 @@ class DmsfFileRevision < ApplicationRecord
     filename = path.join(disk_filename)
     if search_if_not_exists && !File.exist?(filename)
       # Let's search for the physical file in source revisions
-      dmsf_file.dmsf_file_revisions.where(created_at: ...created_at).order(created_at: :desc).each do |rev|
+      dmsf_file.dmsf_file_revisions.where(['created_at < ?', created_at]).order(created_at: :desc).each do |rev|
         filename = rev.disk_file
         break if File.exist?(filename)
       end
@@ -196,7 +196,7 @@ class DmsfFileRevision < ApplicationRecord
   end
 
   def new_storage_filename
-    raise DmsfAccessError, 'File id is not set' unless dmsf_file&.id
+    raise RedmineDmsf::Errors::DmsfAccessError, 'File id is not set' unless dmsf_file&.id
 
     filename = DmsfHelper.sanitize_filename(name)
     timestamp = DateTime.current.strftime('%y%m%d%H%M%S')
@@ -325,7 +325,7 @@ class DmsfFileRevision < ApplicationRecord
     format = if member&.dmsf_title_format.present?
                member.dmsf_title_format
              else
-               RedmineDmsf.dmsf_global_title_format
+               Setting.plugin_redmine_dmsf['dmsf_global_title_format']
              end
     return name if format.blank?
 
@@ -400,7 +400,7 @@ class DmsfFileRevision < ApplicationRecord
       d.source_revision = source_revision
       d.save!
     end
-    return unless RedmineDmsf.physical_file_delete?
+    return unless Setting.plugin_redmine_dmsf['dmsf_really_delete_files']
 
     dependencies = DmsfFileRevision.where(disk_filename: disk_filename).all.size
     FileUtils.rm_f(disk_file) if dependencies <= 1
@@ -416,8 +416,6 @@ class DmsfFileRevision < ApplicationRecord
     end
     # ActionParameters => Hash
     h = DmsfFileRevision.params_to_hash(values)
-    # From a REST API call we don't get "20" => "Project" but "CustomFieldValue20" => "Project"
-    h.transform_keys! { |key| key.to_i.zero? && key.to_s.match(/(\d+)/) ? :Regexp.last_match(0) : key }
     # Super
     self.custom_field_values = h
     # For a new revision we need to duplicate attachments

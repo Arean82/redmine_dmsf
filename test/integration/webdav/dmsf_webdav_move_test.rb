@@ -135,10 +135,7 @@ class DmsfWebdavMoveTest < RedmineDmsf::Test::IntegrationTest
   end
 
   def test_move_to_new_filename_with_project_names
-    with_settings plugin_redmine_dmsf: { 'dmsf_webdav_use_project_names' => '1',
-                                         'dmsf_webdav' => '1',
-                                         'dmsf_webdav_authentication' => 'Basic',
-                                         'dmsf_webdav_strategy' => 'WEBDAV_READ_WRITE' } do
+    with_settings plugin_redmine_dmsf: { 'dmsf_webdav_use_project_names' => '1', 'dmsf_webdav' => '1' } do
       project1_uri = ERB::Util.url_encode(RedmineDmsf::Webdav::ProjectResource.create_project_name(@project1))
       new_name = "#{@file1.name}.moved"
       assert_difference '@file1.dmsf_file_revisions.count', +1 do
@@ -185,10 +182,7 @@ class DmsfWebdavMoveTest < RedmineDmsf::Test::IntegrationTest
   end
 
   def test_move_to_new_folder_with_project_names
-    with_settings plugin_redmine_dmsf: { 'dmsf_webdav_use_project_names' => '1',
-                                         'dmsf_webdav' => '1',
-                                         'dmsf_webdav_authentication' => 'Basic',
-                                         'dmsf_webdav_strategy' => 'WEBDAV_READ_WRITE' } do
+    with_settings plugin_redmine_dmsf: { 'dmsf_webdav_use_project_names' => '1', 'dmsf_webdav' => '1' } do
       project1_uri = ERB::Util.url_encode(RedmineDmsf::Webdav::ProjectResource.create_project_name(@project1))
       assert_difference '@file1.dmsf_file_revisions.count', +1 do
         process :move,
@@ -227,7 +221,7 @@ class DmsfWebdavMoveTest < RedmineDmsf::Test::IntegrationTest
               headers: @jsmith.merge!(
                 { destination: "http://www.example.com/dmsf/webdav/#{@project1.identifier}/#{@file9.name}" }
               )
-      assert_response :precondition_failed
+      assert_response 412
     end
   end
 

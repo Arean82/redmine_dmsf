@@ -42,7 +42,7 @@ class DmsfQuery < Query
   ]
 
   def initialize(attributes = nil, *_args)
-    super(attributes)
+    super attributes
     self.sort_criteria = []
     self.filters ||= { 'title' => { operator: '~', values: [''] } }
     self.dmsf_folder_id = nil
@@ -182,9 +182,9 @@ class DmsfQuery < Query
   # New
 
   def dmsf_nodes(options = {})
-    order_option = ['sort', group_by_sort_order, options[:order] || sort_clause&.first].flatten.compact_blank
+    order_option = ['sort', group_by_sort_order, (options[:order] || sort_clause&.first)].flatten.compact_blank
     if order_option.size > 1
-      DmsfFileRevisionCustomField.visible.pluck(:id).each do |id|
+      DmsfFileRevisionCustomField.visible.pluck(:id, :name).each do |id, _name|
         order_option[1].gsub! "cf_#{id}.value", "cf_#{id}"
       end
       if order_option[1] =~ /^(firstname|major_version),? (lastname|minor_version)( patch_version)? (DESC|ASC)$/
@@ -258,9 +258,10 @@ class DmsfQuery < Query
     return query if query&.visibility == VISIBILITY_PUBLIC
 
     # Global default
-    query = find_by(id: RedmineDmsf.dmsf_default_query)
-    return query if query&.visibility == VISIBILITY_PUBLIC
-
+    if (query_id = Setting.plugin_redmine_dmsf['dmsf_default_query']).present?
+      query = find_by(id: query_id)
+      return query if query&.visibility == VISIBILITY_PUBLIC
+    end
     nil
   end
 
@@ -341,7 +342,6 @@ class DmsfQuery < Query
         projects.description AS description,
         '' AS comment,
         0 AS locked,
-        0 AS "system",
         0 AS sort#{cf_columns}}).visible
     if dmsf_folder_id || deleted
       scope.none
@@ -382,8 +382,7 @@ class DmsfQuery < Query
         dmsf_folders.id AS customized_id,
         dmsf_folders.description AS description,
         '' AS comment,
-        (CASE WHEN dmsf_locks.id IS NULL THEN 0 ELSE 1 END) AS locked,
-        (CASE WHEN (dmsf_folders.system = #{ActiveRecord::Base.connection.quoted_true}) THEN 1 ELSE 0 END) AS "system",
+        (case when dmsf_locks.id IS NULL then 0 else 1 end) AS locked,
         1 AS sort#{cf_columns}})
                       .joins('LEFT JOIN users ON dmsf_folders.user_id = users.id')
                       .joins("LEFT JOIN dmsf_locks ON dmsf_folders.id = dmsf_locks.entity_id AND
@@ -428,8 +427,7 @@ class DmsfQuery < Query
         dmsf_folders.id AS customized_id,
         dmsf_folders.description AS description,
         '' AS comment,
-        (CASE WHEN dmsf_locks.id IS NULL THEN 0 ELSE 1 END) AS locked,
-        0 AS "system",
+        (case when dmsf_locks.id IS NULL then 0 else 1 end) AS locked,
         1 AS sort#{cf_columns}})
                     .joins('LEFT JOIN dmsf_folders ON dmsf_links.target_id = dmsf_folders.id')
                     .joins('LEFT JOIN users ON users.id = COALESCE(dmsf_folders.user_id, dmsf_links.user_id)')
@@ -475,8 +473,7 @@ class DmsfQuery < Query
         dmsf_file_revisions.id AS customized_id,
         dmsf_file_revisions.description AS description,
         dmsf_file_revisions.comment AS comment,
-        (CASE WHEN dmsf_locks.id IS NULL THEN 0 ELSE 1 END) AS locked,
-        0 AS "system",
+        (case when dmsf_locks.id IS NULL then 0 else 1 end) AS locked,
         2 AS sort#{cf_columns}})
                     .joins(:dmsf_file_revisions)
                     .joins('LEFT JOIN users ON dmsf_file_revisions.user_id = users.id ')
@@ -522,8 +519,7 @@ class DmsfQuery < Query
         dmsf_file_revisions.id AS customized_id,
         dmsf_file_revisions.description AS description,
         dmsf_file_revisions.comment AS comment,
-        (CASE WHEN dmsf_locks.id IS NULL THEN 0 ELSE 1 END) AS locked,
-        0 AS "system",
+        (case when dmsf_locks.id IS NULL then 0 else 1 end) AS locked,
         2 AS sort#{cf_columns}})
                     .joins('JOIN dmsf_files ON dmsf_files.id = dmsf_links.target_id')
                     .joins('JOIN dmsf_file_revisions ON dmsf_file_revisions.dmsf_file_id = dmsf_files.id')
@@ -571,7 +567,6 @@ class DmsfQuery < Query
         '' AS description,
         '' AS comment,
         0 AS locked,
-        0 AS "system",
         2 AS sort#{cf_columns}})
                     .joins('LEFT JOIN users ON dmsf_links.user_id = users.id ')
     scope = deleted ? scope.deleted : scope.visible

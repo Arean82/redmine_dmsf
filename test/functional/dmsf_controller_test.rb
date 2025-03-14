@@ -24,7 +24,6 @@ require File.expand_path('../../test_helper', __FILE__)
 class DmsfControllerTest < RedmineDmsf::Test::TestCase
   include Redmine::I18n
   include Rails.application.routes.url_helpers
-  include DmsfHelper
 
   fixtures :custom_fields, :custom_values, :dmsf_links, :dmsf_folder_permissions, :dmsf_locks,
            :dmsf_folders, :dmsf_files, :dmsf_file_revisions
@@ -33,7 +32,6 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     super
     @link2 = DmsfLink.find 2
     @link1 = DmsfLink.find 1
-    @link4 = DmsfLink.find 4
     @custom_field = CustomField.find 21
     @custom_value = CustomValue.find 21
     default_url_options[:host] = 'www.example.com'
@@ -55,9 +53,12 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     # Custom fields
     assert_select 'label', { text: @custom_field.name }
     assert_select 'option', { value: @custom_value.value }
-    # Permissions - The form must contain a checkbox for each available role
-    roles = @project1.members.map(&:roles).flatten.uniq
-    roles.each do |r|
+    # Permissions - The form must contain a check box for each available role
+    roles = []
+    @project1.members.each do |m|
+      roles << m.roles
+    end
+    roles.uniq.each do |r|
       assert_select 'input', { value: r.name }
     end
   end
@@ -108,7 +109,7 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
 
   def test_empty_trash
     post '/login', params: { username: 'jsmith', password: 'jsmith' }
-    delete "/projects/#{@project1.id}/dmsf/empty_trash"
+    get "/projects/#{@project1.id}/dmsf/empty_trash"
     assert_equal 0, DmsfFolder.deleted.where(project_id: @project1.id).all.size
     assert_equal 0, DmsfFile.deleted.where(project_id: @project1.id).all.size
     assert_equal 0, DmsfLink.deleted.where(project_id: @project1.id).all.size
@@ -119,7 +120,7 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     # Missing permissions
     post '/login', params: { username: 'jsmith', password: 'jsmith' }
     @role_manager.remove_permission! :file_delete
-    delete "/projects/#{@project1.id}/dmsf/empty_trash"
+    get "/projects/#{@project1.id}/dmsf/empty_trash"
     assert_response :forbidden
   end
 
@@ -305,7 +306,7 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     assert_select 'a', text: @link1.title, count: 1
     assert_select 'a[href$=?]',
                   "/projects/#{@link1.target_project.identifier}/dmsf?folder_id=#{@link1.target_folder.id}",
-                  count: 4 # Two because of folder1 and folder1_link (2x - icon + link)
+                  count: 2 # Two because of folder1 and folder1_link
   end
 
   def test_folder_link_to_project
@@ -316,7 +317,7 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     get "/projects/#{@link1.project_id}/dmsf", params: { folder_id: @link1.dmsf_folder_id }
     assert_response :success
     assert_select 'a', text: @link1.title, count: 1
-    assert_select 'a[href$=?]', "/projects/#{@project2.identifier}/dmsf", count: 2 # (2x - icon + link)
+    assert_select 'a[href$=?]', "/projects/#{@project2.identifier}/dmsf", count: 1
   end
 
   def test_new_forbidden
@@ -346,7 +347,7 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     with_settings plugin_redmine_dmsf: { 'dmsf_documents_email_from' => 'karel.picman@kontron.com' } do
       post "/projects/#{@project1.id}/dmsf/entries", params: { email_entries: true, ids: ["file-#{@file1.id}"] }
       assert_response :success
-      assert_select "input:match('value', ?)", RedmineDmsf.dmsf_documents_email_from
+      assert_select "input:match('value', ?)", Setting.plugin_redmine_dmsf['dmsf_documents_email_from']
     end
   end
 
@@ -355,7 +356,7 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     with_settings plugin_redmine_dmsf: { 'dmsf_documents_email_reply_to' => 'karel.picman@kontron.com' } do
       post "/projects/#{@project1.id}/dmsf/entries", params: { email_entries: true, ids: ["file-#{@file1.id}"] }
       assert_response :success
-      assert_select "input:match('value', ?)", RedmineDmsf.dmsf_documents_email_reply_to
+      assert_select "input:match('value', ?)", Setting.plugin_redmine_dmsf['dmsf_documents_email_reply_to']
     end
   end
 
@@ -378,29 +379,6 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     assert_redirected_to dmsf_folder_path(id: @project1)
   ensure
     zip_file.unlink
-  end
-
-  def test_download_email_entries
-    post '/login', params: { username: 'jsmith', password: 'jsmith' }
-    zip_file = Tempfile.new([RedmineDmsf::DmsfZip::FILE_PREFIX, '.zip'], Rails.root.join('tmp'))
-    entry = tmp_entry_identifier(zip_file.path)
-    get "/projects/#{@project1.identifier}/dmsf/entries/#{entry}/download_email_entries"
-    assert_response :success
-  end
-
-  def test_download_email_entries_not_found
-    post '/login', params: { username: 'jsmith', password: 'jsmith' }
-    get "/projects/#{@project1.identifier}/dmsf/entries/notfound/download_email_entries"
-    assert_response :not_found
-  end
-
-  def test_download_email_entries_forbidden
-    @role_manager.remove_permission! :view_dmsf_files
-    post '/login', params: { username: 'jsmith', password: 'jsmith' }
-    zip_file = Tempfile.new([RedmineDmsf::DmsfZip::FILE_PREFIX, '.zip'], Rails.root.join('tmp'))
-    entry = tmp_entry_identifier(zip_file.path)
-    get "/projects/#{@project1.identifier}/dmsf/entries/#{entry}/download_email_entries"
-    assert_response :forbidden
   end
 
   def test_add_email_forbidden
@@ -697,13 +675,5 @@ class DmsfControllerTest < RedmineDmsf::Test::TestCase
     post '/dmsf/digest', params: { password: 'jsmith' }
     assert_response :redirect
     assert_redirected_to 'http://www.example.com/login?back_url=http%3A%2F%2Fwww.example.com%2Fdmsf%2Fdigest'
-  end
-
-  def test_entries_download
-    # Target project is not given
-    post '/login', params: { username: 'jsmith', password: 'jsmith' }
-    post "/projects/#{@project1.id}/dmsf/entries",
-         params: { ids: ["folder-link-#{@link1.id}", "file-link-#{@link4.id}"], download_entries: true }
-    assert_response :success
   end
 end

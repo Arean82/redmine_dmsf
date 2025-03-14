@@ -65,7 +65,6 @@ class DmsfFileApiTest < RedmineDmsf::Test::IntegrationTest
     #       <dmsf_workflow_assigned_at/>
     #       <dmsf_workflow_started_by_user_id/>
     #       <dmsf_workflow_started_at/>
-    #       <dmsf_worklfow_state>Waiting for Approval</dmsf_workflow_state>
     #       <digest></digest>
     #     </dmsf_file_revision>
     #     <dmsf_file_revision>
@@ -88,7 +87,6 @@ class DmsfFileApiTest < RedmineDmsf::Test::IntegrationTest
     #       <dmsf_workflow_assigned_at/>
     #       <dmsf_workflow_started_by_user_id>1</dmsf_workflow_started_by_user_id>
     #       <dmsf_workflow_started_at/>
-    #       <dmsf_worklfow_state>Waiting for Approval</dmsf_workflow_state>
     #       <digest>81dc9bdb52d04dc20036dbd8313ed055</digest>
     #       <custom_fields>
     #         <custom_field>
@@ -105,8 +103,6 @@ class DmsfFileApiTest < RedmineDmsf::Test::IntegrationTest
     assert_select 'dmsf_file > content_url', text: "http://www.example.com/dmsf/files/#{@file1.id}/download"
     assert_select 'dmsf_file > dmsf_file_revisions > dmsf_file_revision', @file1.dmsf_file_revisions.all.size
     assert_select 'dmsf_file > dmsf_file_revisions > dmsf_file_revision > custom_fields > custom_field'
-    assert_select 'dmsf_file > dmsf_file_revisions > dmsf_file_revision > dmsf_worklfow_state',
-                  text: 'Waiting for Approval'
     # curl -v -H "Content-Type: application/octet-stream" -X GET -u ${1}:${2}
     #   http://localhost:3000/dmsf/files/41532/download > file.txt
     get "/dmsf/files/#{@file1.id}/download.xml?key=#{@token.value}"
@@ -132,7 +128,8 @@ class DmsfFileApiTest < RedmineDmsf::Test::IntegrationTest
     assert_not_nil ftoken
     # curl -v -H "Content-Type: application/xml" -X POST --data "@file.xml" -u ${1}:${2}
     #   http://localhost:3000/projects/12/dmsf/commit.xml
-    payload = %(<attachments>
+    payload = %(<?xml version="1.0" encoding="utf-8" ?>
+                <attachments>
                  <folder_id/>
                  <uploaded_file>
                    <name>test.txt</name>
@@ -209,7 +206,7 @@ class DmsfFileApiTest < RedmineDmsf::Test::IntegrationTest
     User.current = nil
     # curl -v -H "Content-Type: application/xml" -X DELETE -u ${1}:${2} http://localhost:3000/dmsf/files/196118.xml
     delete "/dmsf/files/#{@file1.id}.xml?key=#{@token.value}", headers: { 'CONTENT_TYPE' => 'application/xml' }
-    assert_response :unprocessable_content
+    assert_response 422
     # <?xml version="1.0" encoding="UTF-8"?>
     # <errors type="array">
     #   <error>Locked by Admin</error>
@@ -223,6 +220,7 @@ class DmsfFileApiTest < RedmineDmsf::Test::IntegrationTest
     # curl -v -H "Content-Type: application/xml" -X POST --data "@revision.xml" -u ${1}:${2}
     #   http://localhost:3000/dmfs/files/1/revision/create.xml
     payload = %(
+      <?xml version="1.0" encoding="utf-8" ?>
       <dmsf_file_revision>
         <title>#{@file1.name}</title>
         <name>#{@file1.name}</name>

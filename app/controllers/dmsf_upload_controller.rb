@@ -57,7 +57,7 @@ class DmsfUploadController < ApplicationController
     # Upload
     else
       # standard file input uploads
-      uploaded_files&.each_value do |uploaded_file|
+      uploaded_files&.each do |_, uploaded_file|
         upload = DmsfUpload.create_from_uploaded_attachment(@project, @folder, uploaded_file)
         @uploads.push(upload) if upload
       end
@@ -109,7 +109,7 @@ class DmsfUploadController < ApplicationController
     @folder = DmsfFolder.visible.find_by(id: attachments[:folder_id]) if attachments[:folder_id].present?
     # standard file input uploads
     uploaded_files = attachments.select { |key, _| key == 'uploaded_file' }
-    uploaded_files.each_value do |uploaded_file|
+    uploaded_files.each do |_, uploaded_file|
       upload = DmsfUpload.create_from_uploaded_attachment(@project, @folder, uploaded_file)
       next unless upload
 
@@ -150,7 +150,7 @@ class DmsfUploadController < ApplicationController
 
   def find_folder
     @folder = DmsfFolder.visible.find(params[:folder_id]) if params.key?('folder_id')
-  rescue DmsfAccessError
+  rescue RedmineDmsf::Errors::DmsfAccessError
     render_403
   end
 end
